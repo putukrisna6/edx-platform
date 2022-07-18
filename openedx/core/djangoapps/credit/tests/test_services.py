@@ -7,11 +7,14 @@ from unittest.mock import patch
 from datetime import datetime
 import ddt
 
+from edx_django_utils.cache import RequestCache
+
 from common.djangoapps.course_modes.models import CourseMode
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.credit.api.eligibility import set_credit_requirements
 from openedx.core.djangoapps.credit.models import CreditCourse
 from openedx.core.djangoapps.credit.services import CreditService
+from openedx.core.djangoapps.catalog.tests.factories import CourseFactory as CatalogCourseFactory
 from common.djangoapps.student.models import CourseEnrollment, UserProfile
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
@@ -62,11 +65,18 @@ class CreditServiceTests(ModuleStoreTestCase):
         inactive
         """
 
+        course = CatalogCourseFactory(key=str(self.course.id))
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = course
+
         enrollment = self.enroll()
         enrollment.is_active = False
         enrollment.save()
+        RequestCache.clear_all_namespaces()
 
         assert self.service.get_credit_state(self.user.id, self.course.id) is None
+        self.addCleanup(patch_course_data.stop)
 
     def test_not_credit_course(self):
         """

@@ -47,6 +47,7 @@ from openedx.core.djangoapps.content.course_overviews.tests.factories import Cou
 from openedx.core.djangoapps.programs.tests.mixins import ProgramsApiConfigMixin
 from openedx.core.djangoapps.site_configuration.tests.mixins import SiteMixin
 from openedx.core.djangolib.testing.utils import CacheIsolationTestCase, skip_unless_lms
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from xmodule.modulestore.tests.django_utils import ModuleStoreEnum, ModuleStoreTestCase, SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.factories import CourseFactory, check_mongo_calls  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.data import CertificatesDisplayBehaviors  # lint-amnesty, pylint: disable=wrong-import-order
@@ -283,6 +284,11 @@ class DashboardTest(ModuleStoreTestCase, TestVerificationBase):
         self.user = UserFactory.create(username="jack", email="jack@fake.edx.org", password='test')
         self.client = Client()
         cache.clear()
+
+        patch_context = patch('common.djangoapps.student.helpers.get_course_dates_for_email')
+        get_course = patch_context.start()
+        get_course.return_value = []
+        self.addCleanup(patch_context.stop)
 
     @unittest.skipUnless(settings.ROOT_URLCONF == 'lms.urls', 'Test only valid in lms')
     def _check_verification_status_on(self, mode, value):
@@ -651,7 +657,7 @@ class EnrollmentEventTestMixin(EventTestMixin):
         )
         self.mock_segment_tracker.reset_mock()
 
-    def assert_enrollment_event_was_emitted(self, user, course_key, course, enrollment):
+    def assert_enrollment_event_was_emitted(self, user, course_key, course_overview, enrollment, course=None):
         """Ensures an enrollment event was emitted since the last event related assertion"""
         self.mock_tracker.emit.assert_called_once_with(
             'edx.course.enrollment.activated',
@@ -662,7 +668,8 @@ class EnrollmentEventTestMixin(EventTestMixin):
             }
         )
         self.mock_tracker.reset_mock()
-        properties, traits = self._build_segment_properties_and_traits(user, course_key, course, enrollment, True)
+        properties, traits = self._build_segment_properties_and_traits(user, course_key, course_overview,
+                                                                       enrollment, True, course)
         self.mock_segment_tracker.track.assert_called_once_with(
             user.id, 'edx.course.enrollment.activated', properties, traits=traits
         )
@@ -685,7 +692,46 @@ class EnrollmentEventTestMixin(EventTestMixin):
         )
         self.mock_segment_tracker.reset_mock()
 
-    def _build_segment_properties_and_traits(self, user, course_key, course, enrollment, activated=False):
+    @staticmethod
+    def get_course__date_blocks():
+        """
+        Create date list to test course dates
+        """
+        today = datetime.now().replace(tzinfo=pytz.UTC)
+        yesterday = today - timedelta(days=1)
+        tomorrow = today + timedelta(days=1)
+
+        course_date = {
+            'title': 'Test Course',
+            'assignment_type': '',
+            'link': '',
+            'assignment_count': -1,
+            'due_time': ''
+        }
+        course_date_list = [
+            {
+                'id': 1,
+                'date': yesterday.date(),
+                'due_date': yesterday.strftime("%a, %b %d, %Y"),
+                **course_date
+            },
+            {
+                'id': 2,
+                'date': today.date(),
+                'due_date': today.strftime("%a, %b %d, %Y"),
+                **course_date
+            },
+            {
+                'id': 3,
+                'date': tomorrow.date(),
+                'due_date': tomorrow.strftime("%a, %b %d, %Y"),
+                **course_date
+            }
+        ]
+        return course_date_list
+
+    def _build_segment_properties_and_traits(self, user, course_key, course_overview, enrollment,
+                                             activated=False, course=None):
         """ Builds the segment properties and traits that are sent during enrollment events """
         properties = {
             'category': 'conversion',
@@ -696,29 +742,89 @@ class EnrollmentEventTestMixin(EventTestMixin):
             'mode': enrollment.mode,
         }
         traits = properties.copy()
-        traits.update({'course_title': course.display_name, 'email': user.email})
+        traits.update({'course_title': course_overview.display_name, 'email': user.email})
 
+        lms_root_url = configuration_helpers.get_value('LMS_ROOT_URL', settings.LMS_ROOT_URL)
+        learning_base_url = configuration_helpers.get_value('LEARNING_MICROFRONTEND_URL',
+                                                            settings.LEARNING_MICROFRONTEND_URL)
         if activated:
+            course_run = course['course_runs'][0]
+            pacing_type = 'Instructor-led' if course['pacing_type'] == 'instructor_paced' else 'Self-paced'
             properties.update({
                 'email': user.email,
                 # This next property is for an experiment, see method's comments for more information
                 # we will just hardcode the default value while the experiment runs
                 'external_course_updates': -1,
-                'course_start': course.start,
-                'course_pacing': course.pacing,
+                'course_start': course_overview.start,
+                'course_pacing': course_overview.pacing,
+                'price': 'Free',
+                'goals_enabled': False,
+                'learner_name': user.profile.name,
+                'course_run_key': str(course_key),
+                'lms_base_url': lms_root_url,
+                'learning_base_url': learning_base_url,
+                'course_title': course['course_title'],
+                'short_description': course['short_description'],
+                'marketing_url': 'http://www.morales.com/',
+                'pacing_type': pacing_type,
+                'partner_image_url': course['owners'][0]['logo_image_url'],
+                'banner_image_url': course['image']['src'],
+                'first_instructor': {},
+                'instructors': [],
+                'min_effort': course_run['min_effort'],
+                'max_effort': course_run['max_effort'],
+                'weeks_to_complete': course_run['weeks_to_complete'],
+                'learners_count': '{:,}'.format(course_run['enrollment_count']),
+                'course_date_blocks': self.get_course__date_blocks(),
             })
         return properties, traits
 
 
-class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
+@override_settings(PAID_COURSE_REGISTRATION_CURRENCY=["USD", "$"])
+class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase, ModuleStoreTestCase):
     """Tests enrolling and unenrolling in courses."""
+
+    def setUp(self):
+        """
+        Set up tests
+        """
+        super().setUp()
+
+        patch_context = patch('common.djangoapps.student.helpers.get_course_dates_for_email')
+        get_course = patch_context.start()
+        get_course.return_value = self.get_course__date_blocks()
+        self.addCleanup(patch_context.stop)
+
+    @staticmethod
+    def _course_with_run(course_id, course_overview):
+        """
+        Discovery course
+        """
+        course_run = CourseRunFactory.create(key=course_id)
+        course_run['availability'] = 'Current'
+        course_run['min_effort'] = 1
+        course_run['enrollment_count'] = 12345
+
+        course = CatalogCourseFactory(key=str(course_id), course_runs=[course_run])
+        course.update({
+            'course_title': course_overview.display_name,
+            'short_description': course_overview.short_description,
+            'marketing_url': 'http://www.morales.com/',
+            'pacing_type': 'self_paced',
+        })
+        return course
 
     @unittest.skipUnless(settings.ROOT_URLCONF == 'lms.urls', 'Test only valid in lms')
     def test_enrollment(self):
         user = UserFactory.create(username="joe", email="joe@joe.com", password="password")
         course_id = CourseKey.from_string("edX/Test101/2013")
         course_id_partial = CourseKey.from_string("edX/Test101/")
-        course = CourseOverviewFactory.create(id=course_id)
+        course_overview = CourseOverviewFactory.create(id=course_id)
+        course = self._course_with_run(course_id, course_overview)
+
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = course
 
         # Test basic enrollment
         assert not CourseEnrollment.is_enrolled(user, course_id)
@@ -726,7 +832,7 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         enrollment = CourseEnrollment.enroll(user, course_id)
         assert CourseEnrollment.is_enrolled(user, course_id)
         assert CourseEnrollment.is_enrolled_by_partial(user, course_id_partial)
-        self.assert_enrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_enrollment_event_was_emitted(user, course_id, course_overview, enrollment, course)
 
         # Enrolling them again should be harmless
         enrollment = CourseEnrollment.enroll(user, course_id)
@@ -738,7 +844,7 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         CourseEnrollment.unenroll(user, course_id)
         assert not CourseEnrollment.is_enrolled(user, course_id)
         assert not CourseEnrollment.is_enrolled_by_partial(user, course_id_partial)
-        self.assert_unenrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_unenrollment_event_was_emitted(user, course_id, course_overview, enrollment)
 
         # Unenrolling them again should also be harmless
         CourseEnrollment.unenroll(user, course_id)
@@ -760,12 +866,19 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         enrollment = CourseEnrollment.enroll(user, course_id, "audit")
         assert CourseEnrollment.is_enrolled(user, course_id)
         assert enrollment.mode == 'audit'
+        self.addCleanup(patch_course_data.stop)
 
+    @override_settings(LEARNING_MICROFRONTEND_URL='https://learningmfe.openedx.org')
     def test_enrollment_non_existent_user(self):
         # Testing enrollment of newly unsaved user (i.e. no database entry)
         user = UserFactory(username="rusty", email="rusty@fake.edx.org")
         course_id = CourseLocator("edX", "Test101", "2013")
-        course = CourseOverviewFactory.create(id=course_id)
+        course_overview = CourseOverviewFactory.create(id=course_id)
+        course = self._course_with_run(course_id, course_overview)
+
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = course
 
         assert not CourseEnrollment.is_enrolled(user, course_id)
 
@@ -777,17 +890,23 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         # should still work
         enrollment = CourseEnrollment.enroll(user, course_id)
         assert CourseEnrollment.is_enrolled(user, course_id)
-        self.assert_enrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_enrollment_event_was_emitted(user, course_id, course_overview, enrollment, course)
+        self.addCleanup(patch_course_data.stop)
 
     @unittest.skipUnless(settings.ROOT_URLCONF == 'lms.urls', 'Test only valid in lms')
     def test_enrollment_by_email(self):
         user = UserFactory.create(username="jack", email="jack@fake.edx.org")
         course_id = CourseLocator("edX", "Test101", "2013")
-        course = CourseOverviewFactory.create(id=course_id)
+        course_overview = CourseOverviewFactory.create(id=course_id)
+        course = self._course_with_run(course_id, course_overview)
+
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = course
 
         enrollment = CourseEnrollment.enroll_by_email("jack@fake.edx.org", course_id)
         assert CourseEnrollment.is_enrolled(user, course_id)
-        self.assert_enrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_enrollment_event_was_emitted(user, course_id, course_overview, enrollment, course)
 
         # This won't throw an exception, even though the user is not found
         assert CourseEnrollment.enroll_by_email('not_jack@fake.edx.org', course_id) is None
@@ -805,7 +924,7 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         # Now unenroll them by email
         CourseEnrollment.unenroll_by_email("jack@fake.edx.org", course_id)
         assert not CourseEnrollment.is_enrolled(user, course_id)
-        self.assert_unenrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_unenrollment_event_was_emitted(user, course_id, course_overview, enrollment)
 
         # Harmless second unenroll
         CourseEnrollment.unenroll_by_email("jack@fake.edx.org", course_id)
@@ -815,29 +934,43 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         # Unenroll on non-existent user shouldn't throw an error
         CourseEnrollment.unenroll_by_email("not_jack@fake.edx.org", course_id)
         self.assert_no_events_were_emitted()
+        self.addCleanup(patch_course_data.stop)
 
     @unittest.skipUnless(settings.ROOT_URLCONF == 'lms.urls', 'Test only valid in lms')
     def test_enrollment_multiple_classes(self):
         user = UserFactory(username="rusty", email="rusty@fake.edx.org")
         course_id1 = CourseLocator("edX", "Test101", "2013")
         course_id2 = CourseLocator("MITx", "6.003z", "2012")
-        course1 = CourseOverviewFactory.create(id=course_id1)
-        course2 = CourseOverviewFactory.create(id=course_id2)
+        course_overview1 = CourseOverviewFactory.create(id=course_id1)
+        course_overview2 = CourseOverviewFactory.create(id=course_id2)
+        course1 = self._course_with_run(course_id1, course_overview1)
+        course2 = self._course_with_run(course_id2, course_overview2)
+
+        patch_course_data1 = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data1 = patch_course_data1.start()
+        course_data1.return_value = course1
 
         enrollment1 = CourseEnrollment.enroll(user, course_id1)
-        self.assert_enrollment_event_was_emitted(user, course_id1, course1, enrollment1)
+        self.assert_enrollment_event_was_emitted(user, course_id1, course_overview1, enrollment1, course1)
+        self.addCleanup(course_data1.stop)
+
+        patch_course_data2 = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data2 = patch_course_data2.start()
+        course_data2.return_value = course2
+
         enrollment2 = CourseEnrollment.enroll(user, course_id2)
-        self.assert_enrollment_event_was_emitted(user, course_id2, course2, enrollment2)
+        self.assert_enrollment_event_was_emitted(user, course_id2, course_overview2, enrollment2, course2)
+        self.addCleanup(course_data2.stop)
         assert CourseEnrollment.is_enrolled(user, course_id1)
         assert CourseEnrollment.is_enrolled(user, course_id2)
 
         CourseEnrollment.unenroll(user, course_id1)
-        self.assert_unenrollment_event_was_emitted(user, course_id1, course1, enrollment1)
+        self.assert_unenrollment_event_was_emitted(user, course_id1, course_overview1, enrollment1)
         assert not CourseEnrollment.is_enrolled(user, course_id1)
         assert CourseEnrollment.is_enrolled(user, course_id2)
 
         CourseEnrollment.unenroll(user, course_id2)
-        self.assert_unenrollment_event_was_emitted(user, course_id2, course2, enrollment2)
+        self.assert_unenrollment_event_was_emitted(user, course_id2, course_overview2, enrollment2)
         assert not CourseEnrollment.is_enrolled(user, course_id1)
         assert not CourseEnrollment.is_enrolled(user, course_id2)
 
@@ -845,7 +978,12 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
     def test_activation(self):
         user = UserFactory.create(username="jack", email="jack@fake.edx.org")
         course_id = CourseLocator("edX", "Test101", "2013")
-        course = CourseOverviewFactory.create(id=course_id)
+        course_overview = CourseOverviewFactory.create(id=course_id)
+        course = self._course_with_run(course_id, course_overview)
+
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = course
         assert not CourseEnrollment.is_enrolled(user, course_id)
 
         # Creating an enrollment doesn't actually enroll a student
@@ -857,7 +995,7 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         # Until you explicitly activate it
         enrollment.activate()
         assert CourseEnrollment.is_enrolled(user, course_id)
-        self.assert_enrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_enrollment_event_was_emitted(user, course_id, course_overview, enrollment, course)
 
         # Activating something that's already active does nothing
         enrollment.activate()
@@ -867,7 +1005,7 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         # Now deactivate
         enrollment.deactivate()
         assert not CourseEnrollment.is_enrolled(user, course_id)
-        self.assert_unenrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_unenrollment_event_was_emitted(user, course_id, course_overview, enrollment)
 
         # Deactivating something that's already inactive does nothing
         enrollment.deactivate()
@@ -878,25 +1016,33 @@ class EnrollInCourseTest(EnrollmentEventTestMixin, CacheIsolationTestCase):
         # for that user/course_id combination
         CourseEnrollment.enroll(user, course_id)
         assert CourseEnrollment.is_enrolled(user, course_id)
-        self.assert_enrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_enrollment_event_was_emitted(user, course_id, course_overview, enrollment, course)
+        self.addCleanup(course_data.stop)
 
+    @override_settings(LEARNING_MICROFRONTEND_URL='https://learningmfe.openedx.org')
     def test_change_enrollment_modes(self):
         user = UserFactory.create(username="justin", email="jh@fake.edx.org")
         course_id = CourseLocator("edX", "Test101", "2013")
-        course = CourseOverviewFactory.create(id=course_id)
+        course_overview = CourseOverviewFactory.create(id=course_id)
+        course = self._course_with_run(course_id, course_overview)
+
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = course
 
         enrollment = CourseEnrollment.enroll(user, course_id, "audit")
-        self.assert_enrollment_event_was_emitted(user, course_id, course, enrollment)
+        self.assert_enrollment_event_was_emitted(user, course_id, course_overview, enrollment, course)
 
         enrollment = CourseEnrollment.enroll(user, course_id, "honor")
-        self.assert_enrollment_mode_change_event_was_emitted(user, course_id, "honor", course, enrollment)
+        self.assert_enrollment_mode_change_event_was_emitted(user, course_id, "honor", course_overview, enrollment)
 
         # same enrollment mode does not emit an event
         enrollment = CourseEnrollment.enroll(user, course_id, "honor")
         self.assert_no_events_were_emitted()
 
         enrollment = CourseEnrollment.enroll(user, course_id, "audit")
-        self.assert_enrollment_mode_change_event_was_emitted(user, course_id, "audit", course, enrollment)
+        self.assert_enrollment_mode_change_event_was_emitted(user, course_id, "audit", course_overview, enrollment)
+        self.addCleanup(course_data.stop)
 
 
 @unittest.skipUnless(settings.ROOT_URLCONF == 'lms.urls', 'Test only valid in lms')

@@ -1552,11 +1552,14 @@ class CourseEnrollment(models.Model):
                                   mode=mode, course_id=course_id,
                                   cost=cost, currency=currency)
 
-    def emit_event(self, event_name, enterprise_uuid=None):
+    def emit_event(self, event_name, enterprise_uuid=None):    # pylint: disable=too-many-statements
         """
         Emits an event to explicitly track course enrollment and unenrollment.
         """
+        from common.djangoapps.student.helpers import get_course_dates_for_email, get_instructors
         from openedx.core.djangoapps.schedules.config import set_up_external_updates_for_enrollment
+        from openedx.core.djangoapps.catalog.utils import get_course_data
+        from openedx.features.course_experience import ENABLE_COURSE_GOALS
 
         try:
             context = contexts.course_context_from_course_id(self.course_id)
@@ -1591,6 +1594,41 @@ class CourseEnrollment(models.Model):
             segment_traits['email'] = self.user.email
 
             if event_name == EVENT_NAME_ENROLLMENT_ACTIVATED:
+                request = crum.get_current_request()
+                marketing_root_url = settings.MKTG_URLS.get('ROOT')
+                course_key = f'{self.course_id.org}+{self.course_id.course}'
+                course_date_list = get_course_dates_for_email(self.user, self.course.id, request)
+
+                course_data = get_course_data(course_key)
+                course_run = [run for run in course_data['course_runs']
+                              if run['availability'] in ['Current', 'Upcoming']]
+                if course_run:
+                    course_run = course_run[0]
+                    pacing_type = 'Instructor-led' if course_run['pacing_type'] == 'instructor_paced' else 'Self-paced'
+                    first_instructor, instructors = get_instructors(course_run, marketing_root_url)
+                    segment_properties['first_instructor'] = first_instructor
+                    segment_properties['instructors'] = instructors
+                    segment_properties['pacing_type'] = pacing_type
+                    segment_properties['min_effort'] = course_run['min_effort']
+                    segment_properties['max_effort'] = course_run['max_effort']
+                    segment_properties['weeks_to_complete'] = course_run['weeks_to_complete']
+                    segment_properties['learners_count'] = '{:,}'.format(course_run['enrollment_count'])
+
+                segment_properties['goals_enabled'] = ENABLE_COURSE_GOALS.is_enabled(self.course_id)
+                segment_properties['course_date_blocks'] = course_date_list
+                segment_properties['course_title'] = self.course_overview.display_name
+                segment_properties['short_description'] = course_data['short_description']
+                segment_properties['marketing_url'] = course_data['marketing_url']
+                segment_properties['partner_image_url'] = course_data['owners'][0]['logo_image_url']
+                segment_properties['banner_image_url'] = course_data['image']['src'] if course_data['image'] else ''
+
+                segment_properties['price'] = self.course_price
+                segment_properties['learner_name'] = self.user.profile.name
+                segment_properties['course_run_key'] = str(self.course_id)
+                segment_properties['lms_base_url'] = configuration_helpers \
+                    .get_value('LMS_ROOT_URL', settings.LMS_ROOT_URL)
+                segment_properties['learning_base_url'] = configuration_helpers \
+                    .get_value('LEARNING_MICROFRONTEND_URL', settings.LEARNING_MICROFRONTEND_URL)
                 segment_properties['email'] = self.user.email
                 # This next property is for an experiment, see method's comments for more information
                 segment_properties['external_course_updates'] = set_up_external_updates_for_enrollment(self.user,
@@ -1598,7 +1636,6 @@ class CourseEnrollment(models.Model):
                 segment_properties['course_start'] = self.course.start
                 segment_properties['course_pacing'] = self.course.pacing
 
-                course_key = f'{self.course_id.org}+{self.course_id.course}'
                 is_personalized_recommendation = is_personalized_recommendation_for_user(course_key)
                 if is_personalized_recommendation is not None:
                     segment_properties['is_personalized_recommendation'] = is_personalized_recommendation

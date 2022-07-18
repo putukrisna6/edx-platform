@@ -20,6 +20,8 @@ from common.djangoapps.student.models import (
 )
 from common.djangoapps.student.signals import UNENROLL_DONE
 from common.djangoapps.student.tests.factories import UserFactory
+from openedx.core.djangoapps.catalog.tests.factories import CourseFactory as CatalogCourseFactory
+from openedx.core.djangoapps.catalog.tests.factories import CourseRunFactory
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
 
@@ -65,6 +67,23 @@ class TestTransferStudents(ModuleStoreTestCase):
         # Original Course
         original_course_location = locator.CourseLocator('Org0', 'Course0', 'Run0')
         course = self._create_course(original_course_location)
+
+        course_run = CourseRunFactory.create(key=course.id)
+        course_run['availability'] = 'Current'
+        course_run['min_effort'] = 1
+        course_run['enrollment_count'] = 12345
+
+        catalog_course = CatalogCourseFactory(key=str(course.id), course_runs=[course_run])
+        catalog_course.update({
+            'course_title': None,
+            'short_description': None,
+            'marketing_url': 'http://www.morales.com/',
+            'pacing_type': 'self_paced',
+        })
+
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = catalog_course
         # Enroll the student in 'verified'
         CourseEnrollment.enroll(student, course.id, mode='verified')
 
@@ -129,6 +148,7 @@ class TestTransferStudents(ModuleStoreTestCase):
         assert (mode, False) == CourseEnrollment.enrollment_mode_for_user(student, course.id)
         assert (mode, True) == CourseEnrollment.enrollment_mode_for_user(student, new_course_one.id)
         assert (mode, True) == CourseEnrollment.enrollment_mode_for_user(student, new_course_two.id)
+        self.addCleanup(patch_course_data.stop)
 
     def _create_course(self, course_location):
         """

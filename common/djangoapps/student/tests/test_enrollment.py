@@ -26,6 +26,8 @@ from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRol
 from common.djangoapps.student.tests.factories import CourseEnrollmentAllowedFactory, UserFactory
 from common.djangoapps.util.testing import UrlResetMixin
 from openedx.core.djangoapps.embargo.test_utils import restrict_course
+from openedx.core.djangoapps.catalog.tests.factories import CourseRunFactory
+from openedx.core.djangoapps.catalog.tests.factories import CourseFactory as CatalogCourseFactory
 
 
 @ddt.ddt
@@ -73,6 +75,24 @@ class EnrollmentTest(UrlResetMixin, ModuleStoreTestCase, OpenEdxEventsTestMixin)
         ]
         # Set up proctored exam
         self._create_proctored_exam(self.proctored_course)
+
+        course_run = CourseRunFactory.create(key=self.course.id)
+        course_run['availability'] = 'Current'
+        course_run['min_effort'] = 1
+        course_run['enrollment_count'] = 12345
+
+        course = CatalogCourseFactory(key=str(self.course.id), course_runs=[course_run])
+        course.update({
+            'course_title': None,
+            'short_description': None,
+            'marketing_url': 'http://www.morales.com/',
+            'pacing_type': 'self_paced',
+        })
+
+        patch_course_data = patch('openedx.core.djangoapps.catalog.utils.get_course_data')
+        course_data = patch_course_data.start()
+        course_data.return_value = course
+        self.addCleanup(patch_course_data.stop)
 
     def _create_proctored_exam(self, course):
         """
