@@ -7,11 +7,16 @@ import logging
 import threading
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
+from edx_event_bus_kafka.publishing.event_producer import send_to_event_bus
+
+from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
+
 
 from . import BulkOperationsMixin, ModuleStoreEnum
-from .exceptions import ItemNotFoundError
 
 # Things w/ these categories should never be marked as version=DRAFT
+from .. import course_metadata_utils
+
 DIRECT_ONLY_CATEGORIES = ['course', 'chapter', 'sequential', 'about', 'static_tab', 'course_info']
 
 log = logging.getLogger(__name__)
@@ -136,8 +141,11 @@ class ModuleStoreDraftAndPublished(BranchSettingMixin, BulkOperationsMixin, meta
             if bulk_record and bulk_record.active:
                 bulk_record.has_publish_item = True
             else:
+                print(f"reload damn you")
                 # We remove the branch, because publishing always means copying from draft to published
                 self.signal_handler.send("course_published", course_key=course_key.for_branch(None))
+                catalog_info = self.create_catalog_data_for_signal(course_key)
+                COURSE_CATALOG_INFO_CHANGED.send_event(catalog_info=catalog_info)
 
     def update_item_parent(self, item_location, new_parent_location, old_parent_location, user_id, insert_at=None):
         """
