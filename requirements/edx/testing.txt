@@ -69,6 +69,7 @@ attrs==21.4.0
     #   blockstore
     #   edx-ace
     #   openedx-events
+    #   outcome
     #   pytest
 babel==2.10.3
     # via
