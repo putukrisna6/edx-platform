@@ -8,15 +8,13 @@ import threading
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
 from edx_event_bus_kafka.publishing.event_producer import send_to_event_bus
-
 from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
 
-
+from .. import course_metadata_utils
 from . import BulkOperationsMixin, ModuleStoreEnum
+from .exceptions import ItemNotFoundError
 
 # Things w/ these categories should never be marked as version=DRAFT
-from .. import course_metadata_utils
-
 DIRECT_ONLY_CATEGORIES = ['course', 'chapter', 'sequential', 'about', 'static_tab', 'course_info']
 
 log = logging.getLogger(__name__)
