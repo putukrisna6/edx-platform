@@ -7,7 +7,6 @@ import logging
 import threading
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
-from edx_event_bus_kafka.publishing.event_producer import send_to_event_bus
 from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
 
 from .. import course_metadata_utils

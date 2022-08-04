@@ -5,7 +5,6 @@ that are stored in a database an accessible using their Location as an identifie
 
 
 import datetime
-from django.conf import settings
 import logging
 import re
 import threading
@@ -23,7 +22,6 @@ from xblock.plugin import default_select
 from xblock.runtime import Mixologist
 from openedx_events.content_authoring.data import CourseCatalogData, CourseScheduleData
 from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
-from edx_event_bus_kafka.publishing.event_producer import send_to_event_bus
 
 
 # The below import is not used within this module, but ir is still needed becuase
