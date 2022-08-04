@@ -15,14 +15,13 @@ from operator import itemgetter
 
 from opaque_keys.edx.keys import AssetKey, CourseKey
 from opaque_keys.edx.locations import Location  # For import backwards compatibility
+from openedx_events.content_authoring.data import CourseCatalogData, CourseScheduleData
+from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
 from pytz import UTC
 from sortedcontainers import SortedKeyList
 from xblock.core import XBlock
 from xblock.plugin import default_select
 from xblock.runtime import Mixologist
-from openedx_events.content_authoring.data import CourseCatalogData, CourseScheduleData
-from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
-
 
 # The below import is not used within this module, but ir is still needed becuase
 # other modules are imorting EdxJSONEncoder from here
@@ -31,8 +30,8 @@ from xmodule.assetstore import AssetMetadata
 from xmodule.errortracker import make_error_tracker
 from xmodule.util.misc import get_library_or_course_attribute
 
-from .exceptions import InsufficientSpecificationError, InvalidLocationError, ItemNotFoundError
 from ..course_metadata_utils import number_for_course_location
+from .exceptions import InsufficientSpecificationError, InvalidLocationError, ItemNotFoundError
 
 log = logging.getLogger('edx.modulestore')
 
