@@ -137,7 +137,6 @@ class ModuleStoreDraftAndPublished(BranchSettingMixin, BulkOperationsMixin, meta
             if bulk_record and bulk_record.active:
                 bulk_record.has_publish_item = True
             else:
-                print(f"reload damn you")
                 # We remove the branch, because publishing always means copying from draft to published
                 self.signal_handler.send("course_published", course_key=course_key.for_branch(None))
                 catalog_info = self.create_catalog_data_for_signal(course_key)
