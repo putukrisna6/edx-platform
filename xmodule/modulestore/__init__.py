@@ -317,15 +317,12 @@ class BulkOperationsMixin:
         if signal_handler and bulk_ops_record.has_publish_item:
             signal_handler.send("pre_publish", course_key=course_id)
 
-    def create_catalog_data_for_signal(self, course_id):
+    def create_catalog_data_for_signal(self, course_id: CourseKey) -> CourseCatalogData:
         """
         Creates a CourseCatalogData object from a course id by fetching from the module store
 
         Arguments:
-            course_id (CourseKey): id of the course to process
-
-        Returns:
-            CourseCatalogData
+            course_id: id of the course to process
         """
         # Most of this is copied from CourseOverview. We cannot import it
         # because it would lead to circular imports
