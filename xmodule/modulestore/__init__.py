@@ -346,7 +346,7 @@ class BulkOperationsMixin:
                 pacing='self' if course_from_store.self_paced else 'instructor',
                 end=course_from_store.end,
                 enrollment_start=course_from_store.enrollment_start,
-                enrollment_end=course_from_store.enrollment_start,
+                enrollment_end=course_from_store.enrollment_end,
             ),
             effort=effort,
             hidden=catalog_visibility in ['about', 'none'] or course_from_store.id.deprecated,
