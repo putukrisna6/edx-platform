@@ -81,8 +81,12 @@ def listen_for_course_publish(sender, course_key, **kwargs):  # pylint: disable=
 
     update_discussions_settings_from_course_task.delay(course_key_str)
 
+
 @receiver(COURSE_CATALOG_INFO_CHANGED)
 def listen_for_course_catalog_info_changed(sender, signal, **kwargs):
+    """
+    Publish COURSE_CATALOG_INFO_CHANGED signals onto the event bus.
+    """
     try:
         # FIXME: This needs to be replaced with a configurable loading
         # mechanism built into openedx-events.
