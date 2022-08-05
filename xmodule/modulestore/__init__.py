@@ -359,10 +359,10 @@ class BulkOperationsMixin:
         if self.signal_handler and bulk_ops_record.has_publish_item:
             # We remove the branch, because publishing always means copying from draft to published
             self.signal_handler.send("course_published", course_key=course_id.for_branch(None))
-            catalog_info = self.create_catalog_data_for_signal(course_id)
             if course_id.is_course:  # i.e. not a LibraryLocator
+                catalog_info = self.create_catalog_data_for_signal(course_id)
                 COURSE_CATALOG_INFO_CHANGED.send_event(catalog_info=catalog_info)
-                bulk_ops_record.has_publish_item = False
+            bulk_ops_record.has_publish_item = False
 
     def send_bulk_library_updated_signal(self, bulk_ops_record, library_id):
         """
