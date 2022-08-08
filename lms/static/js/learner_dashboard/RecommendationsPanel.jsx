@@ -41,14 +41,15 @@ class RecommendationsPanel extends React.Component {
           return this.props.generalRecommendations;
         } else {
           return response.json();
+          
         }
       }).catch(() => {
         return this.props.generalRecommendations;
       });
 
     this.setState({
-      coursesList: coursesRecommendationData['courses'],
-      isPersonalizedRecommendation: coursesRecommendationData['is_personalized_recommendation']
+      coursesList: coursesRecommendationData.courses,
+      isPersonalizedRecommendation: coursesRecommendationData.is_personalized_recommendation
     });
   };
 
