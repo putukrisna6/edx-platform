@@ -292,9 +292,8 @@ SOCIAL_AUTH_REDIRECT_IS_HTTPS = False
 CLOSEST_CLIENT_IP_FROM_HEADERS = []
 
 #################### Event bus backend ########################
-EVENT_BUS_LIBRARY = "event_bus_kafka"
-SCHEMA_REGISTRY_URL = 'http://edx.devstack.schema-registry:8081'
-KAFKA_BOOTSTRAP_SERVERS = "edx.devstack.kafka:29092"
+EVENT_BUS_KAFKA_SCHEMA_REGISTRY_URL = 'http://edx.devstack.schema-registry:8081'
+EVENT_BUS_KAFKA_BOOTSTRAP_SERVERS = 'edx.devstack.kafka:29092'
 
 ################# New settings must go ABOVE this line #################
 ########################################################################
