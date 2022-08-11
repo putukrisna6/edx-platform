@@ -323,11 +323,7 @@ class BulkOperationsMixin:
         Arguments:
             course_id: id of the course to process
         """
-        # Most of this is copied from CourseOverview. We cannot import it
-        # because it would lead to circular imports
-        course_from_store = self.get_course(course_id)
-        number = number_for_course_location(course_from_store.location)
-        catalog_visibility = course_from_store.catalog_visibility
+        course = self.get_course(course_id)
 
         # see CourseDetail.fetch_about_attribute
         effort_usage_key = course_id.make_usage_key('about', 'effort')
@@ -337,19 +333,19 @@ class BulkOperationsMixin:
             effort = None
         return CourseCatalogData(
             course_key=course_id.for_branch(None),
-            name=course_from_store.display_name,
-            org=course_from_store.location.org,
-            number=number,
+            name=course.display_name,
+            org=course.location.org,
+            number=number_for_course_location(course.location),
             schedule_data=CourseScheduleData(
-                start=course_from_store.start,
-                pacing='self' if course_from_store.self_paced else 'instructor',
-                end=course_from_store.end,
-                enrollment_start=course_from_store.enrollment_start,
-                enrollment_end=course_from_store.enrollment_end,
+                start=course.start,
+                pacing='self' if course.self_paced else 'instructor',
+                end=course.end,
+                enrollment_start=course.enrollment_start,
+                enrollment_end=course.enrollment_end,
             ),
             effort=effort,
-            hidden=catalog_visibility in ['about', 'none'] or course_from_store.id.deprecated,
-            invitation_only=course_from_store.invitation_only,
+            hidden=course.catalog_visibility in ['about', 'none'] or course.id.deprecated,
+            invitation_only=course.invitation_only,
         )
 
     def send_bulk_published_signal(self, bulk_ops_record, course_id):
