@@ -10,6 +10,8 @@ from django.core.cache import cache
 from django.dispatch import receiver
 from pytz import UTC
 
+from opaque_keys.edx.keys import CourseKey
+from openedx_events.content_authoring.data import CourseCatalogData, CourseScheduleData
 from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
 
 from cms.djangoapps.contentstore.courseware_index import (
@@ -22,7 +24,9 @@ from common.djangoapps.util.module_utils import yield_dynamic_descriptor_descend
 from lms.djangoapps.grades.api import task_compute_all_grades_for_course
 from openedx.core.djangoapps.content.learning_sequences.api import key_supports_outlines
 from openedx.core.djangoapps.discussions.tasks import update_discussions_settings_from_course_task
+from openedx.core.djangoapps.models.course_details import CourseDetails
 from openedx.core.lib.gating import api as gating_api
+from xmodule.course_metadata_utils import number_for_course_location
 from xmodule.modulestore.django import SignalHandler, modulestore  # lint-amnesty, pylint: disable=wrong-import-order
 from .signals import GRADING_POLICY_CHANGED
 
@@ -43,6 +47,33 @@ def locked(expiry_seconds, key):  # lint-amnesty, pylint: disable=missing-functi
                 log.info('Task with key %s already exists in cache', cache_key)
         return wrapper
     return task_decorator
+
+
+def create_catalog_data_for_signal(course_key: CourseKey) -> CourseCatalogData:
+    """
+    Creates data for catalog-info-changed signal when ID of published course.
+
+    Arguments:
+        course_key: ID of the course to announce catalog info changes for
+    """
+    course = modulestore().get_course(course_key)
+
+    return CourseCatalogData(
+        course_key=course_key.for_branch(None),
+        name=course.display_name,
+        org=course.location.org,
+        number=number_for_course_location(course.location),
+        schedule_data=CourseScheduleData(
+            start=course.start,
+            pacing='self' if course.self_paced else 'instructor',
+            end=course.end,
+            enrollment_start=course.enrollment_start,
+            enrollment_end=course.enrollment_end,
+        ),
+        effort=CourseDetails.fetch_about_attribute(course_key, 'effort'),
+        hidden=course.catalog_visibility in ['about', 'none'] or course.id.deprecated,
+        invitation_only=course.invitation_only,
+    )
 
 
 @receiver(SignalHandler.course_published)
@@ -80,6 +111,11 @@ def listen_for_course_publish(sender, course_key, **kwargs):  # pylint: disable=
         update_search_index.delay(course_key_str, datetime.now(UTC).isoformat())
 
     update_discussions_settings_from_course_task.delay(course_key_str)
+
+    # Send to a signal for catalog info changes as well
+    if course_key.is_course:  # i.e. not a LibraryLocator
+        catalog_info = create_catalog_data_for_signal(course_key)
+        COURSE_CATALOG_INFO_CHANGED.send_event(catalog_info=catalog_info)
 
 
 @receiver(COURSE_CATALOG_INFO_CHANGED)

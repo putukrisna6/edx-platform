@@ -8,8 +8,6 @@ import threading
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
 
-from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
-
 from . import BulkOperationsMixin, ModuleStoreEnum
 from .exceptions import ItemNotFoundError
 
@@ -140,9 +138,6 @@ class ModuleStoreDraftAndPublished(BranchSettingMixin, BulkOperationsMixin, meta
             else:
                 # We remove the branch, because publishing always means copying from draft to published
                 self.signal_handler.send("course_published", course_key=course_key.for_branch(None))
-                if course_key.is_course:  # i.e. not a LibraryLocator
-                    catalog_info = self.create_catalog_data_for_signal(course_key)
-                    COURSE_CATALOG_INFO_CHANGED.send_event(catalog_info=catalog_info)
 
     def update_item_parent(self, item_location, new_parent_location, old_parent_location, user_id, insert_at=None):
         """

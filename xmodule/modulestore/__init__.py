@@ -15,8 +15,6 @@ from operator import itemgetter
 
 from opaque_keys.edx.keys import AssetKey, CourseKey
 from opaque_keys.edx.locations import Location  # For import backwards compatibility
-from openedx_events.content_authoring.data import CourseCatalogData, CourseScheduleData
-from openedx_events.content_authoring.signals import COURSE_CATALOG_INFO_CHANGED
 from pytz import UTC
 from sortedcontainers import SortedKeyList
 from xblock.core import XBlock
@@ -30,8 +28,7 @@ from xmodule.assetstore import AssetMetadata
 from xmodule.errortracker import make_error_tracker
 from xmodule.util.misc import get_library_or_course_attribute
 
-from ..course_metadata_utils import number_for_course_location
-from .exceptions import InsufficientSpecificationError, InvalidLocationError, ItemNotFoundError
+from .exceptions import InsufficientSpecificationError, InvalidLocationError
 
 log = logging.getLogger('edx.modulestore')
 
@@ -316,38 +313,6 @@ class BulkOperationsMixin:
         if signal_handler and bulk_ops_record.has_publish_item:
             signal_handler.send("pre_publish", course_key=course_id)
 
-    def create_catalog_data_for_signal(self, course_id: CourseKey) -> CourseCatalogData:
-        """
-        Creates a CourseCatalogData object from a course id by fetching from the module store
-
-        Arguments:
-            course_id: id of the course to process
-        """
-        course = self.get_course(course_id)
-
-        # see CourseDetail.fetch_about_attribute
-        effort_usage_key = course_id.make_usage_key('about', 'effort')
-        try:
-            effort = self.get_item(effort_usage_key).data
-        except ItemNotFoundError:
-            effort = None
-        return CourseCatalogData(
-            course_key=course_id.for_branch(None),
-            name=course.display_name,
-            org=course.location.org,
-            number=number_for_course_location(course.location),
-            schedule_data=CourseScheduleData(
-                start=course.start,
-                pacing='self' if course.self_paced else 'instructor',
-                end=course.end,
-                enrollment_start=course.enrollment_start,
-                enrollment_end=course.enrollment_end,
-            ),
-            effort=effort,
-            hidden=course.catalog_visibility in ['about', 'none'] or course.id.deprecated,
-            invitation_only=course.invitation_only,
-        )
-
     def send_bulk_published_signal(self, bulk_ops_record, course_id):
         """
         Sends out the signal that items have been published from within this course.
@@ -355,9 +320,6 @@ class BulkOperationsMixin:
         if self.signal_handler and bulk_ops_record.has_publish_item:
             # We remove the branch, because publishing always means copying from draft to published
             self.signal_handler.send("course_published", course_key=course_id.for_branch(None))
-            if course_id.is_course:  # i.e. not a LibraryLocator
-                catalog_info = self.create_catalog_data_for_signal(course_id)
-                COURSE_CATALOG_INFO_CHANGED.send_event(catalog_info=catalog_info)
             bulk_ops_record.has_publish_item = False
 
     def send_bulk_library_updated_signal(self, bulk_ops_record, library_id):
