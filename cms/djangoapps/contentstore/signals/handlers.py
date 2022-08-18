@@ -130,7 +130,7 @@ def listen_for_course_publish(sender, course_key, **kwargs):  # pylint: disable=
     update_discussions_settings_from_course_task.delay(course_key_str)
 
     # Send to a signal for catalog info changes as well, but only once we know the transaction is committed.
-    transaction.on_commit(emit_catalog_info_changed_signal)
+    transaction.on_commit(lambda: emit_catalog_info_changed_signal(course_key))
 
 
 @receiver(COURSE_CATALOG_INFO_CHANGED)
