@@ -80,7 +80,7 @@ def create_catalog_data_for_signal(course_key: CourseKey) -> Optional[CourseCata
                 enrollment_end=course.enrollment_end,
             ),
             effort=CourseDetails.fetch_about_attribute(course_key, 'effort'),
-            hidden=course.catalog_visibility in ['about', 'none'] or course.id.deprecated,
+            hidden=course.catalog_visibility in ['about', 'none'] or course_key.deprecated,
             invitation_only=course.invitation_only,
         )
 
